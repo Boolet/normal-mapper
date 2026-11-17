@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Normal Map Builder</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+      "delaunator": "https://cdn.jsdelivr.net/npm/delaunator@5.0.1/+esm"
+    }
+  }
+  </script>
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>Normal Map Builder</h1>
+    <div class="topbar-actions">
+      <button id="btn-save-json" title="Download the vertices and settings as JSON">Save project</button>
+      <button id="btn-load-json" title="Load a project JSON file">Load project</button>
+      <input id="file-json" type="file" accept=".json,application/json" hidden>
+      <button id="btn-reset" class="danger">Reset</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- Left: settings -->
+    <aside class="panel sidebar">
+      <section>
+        <h2>Texture</h2>
+        <div class="row2">
+          <label>Width (px)<input id="tex-w" type="number" min="1" max="4096" step="1"></label>
+          <label>Height (px)<input id="tex-h" type="number" min="1" max="4096" step="1"></label>
+        </div>
+        <button id="btn-swap" class="small">Swap width/height</button>
+        <label>Green channel
+          <select id="convention">
+            <option value="opengl">OpenGL (Y+): Unity, Blender, Godot</option>
+            <option value="directx">DirectX (Y−): Unreal</option>
+          </select>
+        </label>
+        <div class="btn-col">
+          <button id="btn-export-normal" class="primary">Export normal map PNG</button>
+          <button id="btn-export-height">Export heightmap PNG</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Editing</h2>
+        <span class="label">Dragging a vertex changes its</span>
+        <div class="seg" id="drag-mode">
+          <button data-v="height">Height</button>
+          <button data-v="move">Position</button>
+        </div>
+        <p class="hint">Hold <kbd>Shift</kbd> while dragging to use the other mode.</p>
+        <div class="btn-row">
+          <button id="btn-top" class="small">Top view</button>
+          <button id="btn-persp" class="small">3D view</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Selected vertex</h2>
+        <p id="sel-empty" class="hint">Click a vertex handle to select it.</p>
+        <div id="sel-fields" hidden>
+          <div class="row2">
+            <label>X (px)<input id="sel-x" type="number" step="any"></label>
+            <label>Y (px)<input id="sel-y" type="number" step="any"></label>
+          </div>
+          <label>Height<input id="sel-h" type="number" step="0.05"></label>
+          <p class="hint">Height uses the plane's units: its long side is 10.</p>
+          <p id="sel-corner-note" class="hint">Corners stay where they are; only their height changes.</p>
+          <button id="btn-delete" class="danger">Delete vertex</button>
+        </div>
+      </section>
+
+      <section>
+        <p id="stats" class="hint"></p>
+      </section>
+    </aside>
+
+    <!-- Center: 3D editor -->
+    <section class="viewport-wrap">
+      <div id="viewport"></div>
+      <div class="help">
+        <span><b>Click</b> surface: add vertex</span>
+        <span><b>Drag</b> vertex: edit</span>
+        <span><kbd>Del</kbd> remove</span>
+        <span><b>Left-drag</b> empty space: orbit</span>
+        <span><b>Right-drag</b>: pan</span>
+        <span><b>Wheel</b>: zoom</span>
+      </div>
+      <div id="load-error" class="load-error" hidden></div>
+    </section>
+
+    <!-- Right: previews -->
+    <aside class="panel previews">
+      <section>
+        <div class="section-head">
+          <h2>Texture preview</h2>
+          <div class="seg compact" id="preview-kind">
+            <button data-v="normal">Normal</button>
+            <button data-v="height">Height</button>
+          </div>
+        </div>
+        <div class="canvas-frame"><canvas id="normal-canvas"></canvas></div>
+      </section>
+
+      <section>
+        <h2>Lighting preview</h2>
+        <div class="canvas-frame" id="lit-frame">
+          <canvas id="lit-canvas"></canvas>
+          <div id="light-marker" title="Drag to move the light"></div>
+        </div>
+        <p class="hint">Drag in the preview to move the light.</p>
+        <div class="row2">
+          <label>Light type
+            <select id="light-type">
+              <option value="point">Point</option>
+              <option value="directional">Directional</option>
+            </select>
+          </label>
+          <label>Light height <output id="light-height-out"></output>
+            <input id="light-height" type="range" min="0.2" max="20" step="0.1">
+          </label>
+        </div>
+        <label>Ambient <output id="ambient-out"></output>
+          <input id="ambient" type="range" min="0" max="1" step="0.01">
+        </label>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <h2>Light → color</h2>
+          <div class="seg compact" id="grad-mode">
+            <button data-v="smooth">Gradient</button>
+            <button data-v="stepped">Stepped</button>
+          </div>
+        </div>
+        <div id="grad-bar-wrap">
+          <canvas id="grad-bar" width="256" height="1"></canvas>
+          <div id="grad-markers"></div>
+        </div>
+        <div class="bar-labels"><span>Dark</span><span>Bright</span></div>
+
+        <div id="smooth-editor">
+          <p class="hint">Click the bar to add a color stop. Drag a stop to move it.</p>
+          <div class="row3">
+            <label>Color<input id="stop-color" type="color"></label>
+            <label>Position %<input id="stop-pos" type="number" min="0" max="100" step="1"></label>
+            <button id="btn-stop-delete" class="danger small">Delete stop</button>
+          </div>
+        </div>
+
+        <div id="stepped-editor" hidden>
+          <div class="row2 align-end">
+            <label>Number of steps<input id="step-count" type="number" min="2" max="16" step="1"></label>
+            <button id="btn-resample" class="small" title="Recolor every step from the smooth gradient">Copy colors from gradient</button>
+          </div>
+          <div id="step-list"></div>
+        </div>
+      </section>
+    </aside>
+  </main>
+</body>
+</html>
